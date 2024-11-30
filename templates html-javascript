@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Máquina Expendedora</title>
+    <script>
+        // Función para agregar crédito
+        function agregarCredito() {
+            const monto = document.getElementById("monto").value;
+            fetch('/agregar_credito', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'monto=' + encodeURIComponent(monto)
+            }).then(response => response.json())
+              .then(data => {
+                  alert(data.mensaje);
+                  document.getElementById("credito-actual").innerText = `Crédito actual: $${data.credito}`;
+              });
+        }
+
+        // Función para comprar producto
+        function comprarProducto(id_producto) {
+            fetch('/comprar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'indice=' + encodeURIComponent(id_producto)
+            }).then(response => response.json())
+              .then(data => {
+                  if (data.error) {
+                      alert(data.error);
+                  } else {
+                      alert(data.mensaje);
+                      location.reload(); // Recarga la página para actualizar el estado
+                  }
+              });
+        }
+
+        
+    // Función para reabastecer producto
+    function reabastecerProducto() {
+        const producto_id = document.getElementById("producto_id").value;
+        const cantidad = document.getElementById("cantidad_reabastecer").value;
+        fetch('/reabastecer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `producto_id=${encodeURIComponent(producto_id)}&cantidad=${encodeURIComponent(cantidad)}`
+        }).then(response => response.json())
+          .then(data => {
+              if (data.error) {
+                  alert(data.error);
+              } else {
+                  alert(data.mensaje);
+                  location.reload(); // Recarga la página para actualizar el estado
+              }
+          });
+    }
+
+
+
+        // Función para cargar estadísticas
+        function cargarEstadisticas() {
+            fetch('/estadisticas')
+            .then(response => response.json())
+            .then(data => {
+                let estadisticas = `
+                    <h3>Estadísticas Generales:</h3>
+                    <p>Total de unidades compradas: ${data.total_unidades}</p>
+                    <p>Valor total de compras: $${data.total_gastado}</p>
+                    <p>Porcentaje de disponibilidad: ${data.porcentaje_disponible}%</p>
+                    <p>Producto más comprado: ${data.producto_mas_comprado}</p>
+                `;
+                document.getElementById("estadisticas").innerHTML = estadisticas;
+            });
+        }
+
+        // Función para cargar información FOPRE
+        function cargarInfoFopre() {
+            fetch('/info_fopre')
+            .then(response => response.json())
+            .then(data => {
+                let infoFopre = `
+                    <h3>Donaciones al FOPRE:</h3>
+                    <p>Donación total: $${data.donacion_total}</p>
+                    <h4>Donación por producto:</h4>
+                    <ul>
+                        ${data.donacion_por_producto.map(item => `<li>${item.nombre}: $${item.total_donado}</li>`).join('')}
+                    </ul>
+                    <h4>Unidades compradas de productos FOPRE:</h4>
+                    <ul>
+                        ${data.unidades_fopre.map(item => `<li>${item.nombre}: ${item.cantidad}</li>`).join('')}
+                    </ul>
+                `;
+                document.getElementById("info-fopre").innerHTML = infoFopre;
+            });
+        }
+    </script>
+</head>
+<body>
+
+    <h1>Máquina Expendedora</h1>
+
+    <h2 id="credito-actual">Crédito actual: ${{ credito }}</h2>
+
+    <h2>Productos Disponibles:</h2>
+    <ul>
+        {% for producto in productos %}
+            <li>
+                {{ producto.nombre }} - ${{ producto.precio }} 
+                (Disponibles: {{ producto.cantidad_disponible }})
+                <button onclick="comprarProducto('{{ producto.id_producto }}')">Comprar</button>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h2>Agregar Crédito:</h2>
+    <input type="number" id="monto" placeholder="Monto">
+    <button onclick="agregarCredito()">Agregar Crédito</button>
+    
+    <h2>Reabastecer Producto:</h2>
+    <input type="number" id="producto_id" placeholder="ID Producto">
+    <input type="number" id="cantidad_reabastecer" placeholder="Cantidad">
+    <button onclick="reabastecerProducto()">Reabastecer</button>
+    
+    <h2>Estadísticas Generales:</h2>
+    <button onclick="cargarEstadisticas()">Cargar Estadísticas</button>
+    <div id="estadisticas"></div>
+
+    <h2>Información FOPRE:</h2>
+    <button onclick="cargarInfoFopre()">Cargar Información FOPRE</button>
+    <div id="info-fopre"></div>
+
+</body>
+</html>
