@@ -1,0 +1,142 @@
+from flask import Flask, render_template, request, jsonify
+import mysql.connector
+
+app = Flask(__name__)
+
+# Conexión a la base de datos MySQL
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="1234",
+    database="maquinaexpendedora"
+)
+cursor = db.cursor(dictionary=True)
+
+# Ruta principal
+@app.route('/')
+def index():
+    cursor.execute("SELECT * FROM Productos")
+    productos = cursor.fetchall()
+    
+    cursor.execute("SELECT credito FROM Maquina WHERE id = 1")
+    credito = cursor.fetchone()['credito']
+    
+    return render_template('index.html', productos=productos, credito=credito)
+
+# Agregar crédito
+@app.route('/agregar_credito', methods=['POST'])
+def agregar_credito():
+    monto = float(request.form['monto'])
+    cursor.execute("UPDATE Maquina SET credito = credito + %s WHERE id = 1", (monto,))
+    db.commit()
+    
+    cursor.execute("SELECT credito FROM Maquina WHERE id = 1")
+    credito = cursor.fetchone()['credito']
+    
+    return jsonify({'mensaje': f'Se agregaron ${monto} de crédito.', 'credito': credito})
+
+
+# Comprar producto
+@app.route('/comprar', methods=['POST'])
+def comprar():
+    id_producto = int(request.form['indice'])
+    cursor.execute("SELECT * FROM Productos WHERE id_producto = %s", (id_producto,))
+    producto = cursor.fetchone()
+    
+    if not producto:
+        return jsonify({'error': 'Producto no encontrado.'})
+    
+    if producto['cantidad_disponible'] <= 0:
+        return jsonify({'error': 'Producto no disponible.'})
+    
+    cursor.execute("SELECT credito FROM Maquina WHERE id = 1")
+    credito = cursor.fetchone()['credito']
+    
+    if credito < producto['precio']:
+        return jsonify({'error': 'Crédito insuficiente.'})
+    
+    donacion = 0
+    if 'dona_fopre' in producto and producto['dona_fopre']:
+        donacion = producto['precio'] * 0.06
+    
+    cursor.execute("""
+        INSERT INTO Compras (id_producto, cantidad, total_compra, donacion_fopre)
+        VALUES (%s, %s, %s, %s)
+    """, (id_producto, 1, producto['precio'], donacion))
+    
+    cursor.execute("UPDATE Productos SET cantidad_disponible = cantidad_disponible - 1 WHERE id_producto = %s", (id_producto,))
+    cursor.execute("UPDATE Maquina SET credito = credito - %s WHERE id = 1", (producto['precio'],))
+    db.commit()
+    
+    mensaje = f'Compraste {producto["nombre"]} por ${producto["precio"]}.'
+    if donacion > 0:
+        mensaje += f' Donaste ${donacion} al FOPRE.'
+    
+    return jsonify({'mensaje': mensaje})
+
+
+# Reabastecer producto
+@app.route('/reabastecer', methods=['POST'])
+def reabastecer():
+    producto_id = int(request.form['producto_id'])
+    cantidad = int(request.form['cantidad'])
+    cursor.execute("UPDATE Productos SET cantidad_disponible = cantidad_disponible + %s WHERE id_producto = %s", (cantidad, producto_id))
+    db.commit()
+    
+    return jsonify({'mensaje': f'Se reabastecieron {cantidad} unidades del producto {producto_id}.'})
+
+# Estadísticas generales
+@app.route('/estadisticas')
+def estadisticas():
+    cursor.execute("SELECT SUM(cantidad) AS total_unidades FROM Compras")
+    total_unidades = cursor.fetchone()['total_unidades'] or 0
+    
+    cursor.execute("SELECT SUM(total_compra) AS total_gastado FROM Compras")
+    total_gastado = cursor.fetchone()['total_gastado'] or 0
+    
+    cursor.execute("SELECT SUM(cantidad_disponible) AS disponibles FROM Productos")
+    disponibles = cursor.fetchone()['disponibles']
+    porcentaje_disponible = (disponibles / (disponibles + total_unidades)) * 100 if disponibles else 0
+    
+    cursor.execute("""
+        SELECT p.nombre, SUM(c.cantidad) AS cantidad 
+        FROM Compras c JOIN Productos p ON c.id_producto = p.id_producto 
+        GROUP BY p.nombre ORDER BY cantidad DESC LIMIT 1
+    """)
+    producto_mas_comprado = cursor.fetchone()
+    
+    return jsonify({
+        'total_unidades': total_unidades,
+        'total_gastado': total_gastado,
+        'porcentaje_disponible': round(porcentaje_disponible, 2),
+        'producto_mas_comprado': producto_mas_comprado['nombre'] if producto_mas_comprado else 'N/A'
+    })
+
+# Información FOPRE
+@app.route('/info_fopre')
+def info_fopre():
+    cursor.execute("SELECT SUM(donacion_fopre) AS donacion_total FROM Compras")
+    donacion_total = cursor.fetchone()['donacion_total'] or 0
+    
+    cursor.execute("""
+        SELECT p.nombre, SUM(c.donacion_fopre) AS total_donado 
+        FROM Compras c JOIN Productos p ON c.id_producto = p.id_producto 
+        WHERE p.dona_fopre = 1 GROUP BY p.nombre
+    """)
+    donacion_por_producto = cursor.fetchall()
+    
+    cursor.execute("""
+        SELECT p.nombre, SUM(c.cantidad) AS cantidad 
+        FROM Compras c JOIN Productos p ON c.id_producto = p.id_producto 
+        WHERE p.dona_fopre = 1 GROUP BY p.nombre
+    """)
+    unidades_fopre = cursor.fetchall()
+    
+    return jsonify({
+        'donacion_total': donacion_total,
+        'donacion_por_producto': donacion_por_producto,
+        'unidades_fopre': unidades_fopre
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True)
